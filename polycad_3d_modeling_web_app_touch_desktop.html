@@ -1,0 +1,1610 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PolyCAD 3D - 極簡網頁 3D 建模與挖空切削工具</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- Google Fonts: Inter & Noto Sans TC -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Inter', 'Noto Sans TC', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      overflow: hidden;
+      background-color: #090d16;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    /* Glassmorphism panel styling */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .glass-modal {
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    /* Number step button styling */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type=number] {
+      -moz-appearance: textfield;
+    }
+
+    /* Smooth modal transitions */
+    .modal-backdrop {
+      transition: opacity 0.25s ease-out;
+    }
+    .modal-card {
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease-out;
+    }
+    .modal-hidden {
+      pointer-events: none;
+      opacity: 0;
+    }
+    .modal-hidden .modal-card {
+      transform: scale(0.95) translateY(12px);
+    }
+
+    /* Touch mode sizing adaptations */
+    body.touch-mode .touch-large-btn {
+      min-height: 48px;
+      padding-left: 1.25rem;
+      padding-right: 1.25rem;
+      font-size: 0.9375rem;
+    }
+    body.touch-mode .touch-stepper-btn {
+      width: 44px;
+      height: 44px;
+    }
+  </style>
+
+  <!-- Import Map for ES Modules (Three.js & three-bvh-csg) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://esm.sh/three@0.160.0",
+        "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/",
+        "three-bvh-csg": "https://esm.sh/three-bvh-csg@0.0.16?deps=three@0.160.0"
+      }
+    }
+  </script>
+</head>
+<body class="text-slate-100 h-screen w-screen flex flex-col relative select-none">
+
+  <!-- ================= TOP MINIMALIST FLOATING BAR ================= -->
+  <header class="fixed top-3 left-3 right-3 h-14 glass-panel rounded-2xl px-4 flex items-center justify-between z-30 shadow-2xl">
+    
+    <!-- App Logo & Title -->
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 bg-gradient-to-tr from-blue-600 via-indigo-500 to-sky-400 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
+        <i class="fa-solid fa-cube text-white text-base"></i>
+      </div>
+      <div class="hidden sm:block">
+        <h1 class="font-bold text-slate-100 text-sm tracking-wide flex items-center gap-2">
+          PolyCAD 3D 
+          <span id="csg-status-pill" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium">編輯模式</span>
+        </h1>
+        <p class="text-[11px] text-slate-400">輕量化 3D 幾何建模與挖空切削</p>
+      </div>
+    </div>
+
+    <!-- Center: Gizmo Mode Selector -->
+    <div class="flex items-center space-x-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+      <button id="tool-translate" title="移動 (W)" class="tool-btn px-3 py-1.5 rounded-lg text-xs font-medium flex items-center space-x-1.5 bg-blue-600 text-white shadow-sm transition">
+        <i class="fa-solid fa-arrows-up-down-left-right text-xs"></i>
+        <span class="hidden md:inline">移動</span>
+      </button>
+      <button id="tool-rotate" title="旋轉 (E)" class="tool-btn px-3 py-1.5 rounded-lg text-xs font-medium flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition">
+        <i class="fa-solid fa-rotate text-xs"></i>
+        <span class="hidden md:inline">旋轉</span>
+      </button>
+      <button id="tool-scale" title="縮放 (R)" class="tool-btn px-3 py-1.5 rounded-lg text-xs font-medium flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition">
+        <i class="fa-solid fa-expand text-xs"></i>
+        <span class="hidden md:inline">縮放</span>
+      </button>
+      <div class="h-4 w-[1px] bg-slate-800 mx-1"></div>
+      <button id="btn-snap-toggle" title="貼齊網格 (Snap)" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition flex items-center space-x-1">
+        <i class="fa-solid fa-magnet text-xs"></i>
+        <span id="snap-text" class="hidden lg:inline text-[11px]">貼齊: 關</span>
+      </button>
+    </div>
+
+    <!-- Right: Device Mode Switcher + Export Button -->
+    <div class="flex items-center space-x-2">
+      <!-- Device Mode Switcher Toggle -->
+      <div class="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-800 text-xs">
+        <button id="mode-desktop" class="px-2.5 py-1 rounded-lg font-medium transition flex items-center space-x-1 bg-slate-800 text-blue-400 shadow">
+          <i class="fa-solid fa-desktop text-xs"></i>
+          <span class="hidden sm:inline">電腦版</span>
+        </button>
+        <button id="mode-touch" class="px-2.5 py-1 rounded-lg font-medium transition flex items-center space-x-1 text-slate-400 hover:text-slate-200">
+          <i class="fa-solid fa-hand-pointer text-xs"></i>
+          <span class="hidden sm:inline">觸控版</span>
+        </button>
+      </div>
+
+      <!-- Export STL Button -->
+      <button id="btn-open-export" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 flex items-center space-x-1.5 transition">
+        <i class="fa-solid fa-file-export text-xs"></i>
+        <span class="hidden sm:inline">匯出 .STL</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= 3D VIEWPORT CANVAS ================= -->
+  <div id="viewport-container" class="w-full h-full relative flex-1">
+    <canvas id="three-canvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+  </div>
+
+  <!-- ================= TOUCH NAVIGATION CAMERA PAD (Touch Mode) ================= -->
+  <div id="touch-nav-pad" class="fixed top-20 right-4 flex-col space-y-2 z-20 hidden">
+    <div class="glass-panel p-1.5 rounded-2xl flex flex-col space-y-1.5 shadow-xl">
+      <button id="btn-view-iso" title="等角視角 ISO" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-mono text-xs font-bold border border-slate-700/60 active:scale-95 transition">
+        ISO
+      </button>
+      <button id="btn-view-top" title="俯視圖 Top" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-mono text-xs font-bold border border-slate-700/60 active:scale-95 transition">
+        TOP
+      </button>
+      <button id="btn-view-front" title="正視圖 Front" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-mono text-xs font-bold border border-slate-700/60 active:scale-95 transition">
+        FRONT
+      </button>
+      <div class="w-full h-[1px] bg-slate-800 my-0.5"></div>
+      <button id="btn-zoom-in" title="放大 Zoom In" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center text-xs border border-slate-700/60 active:scale-95 transition">
+        <i class="fa-solid fa-plus"></i>
+      </button>
+      <button id="btn-zoom-out" title="縮小 Zoom Out" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center text-xs border border-slate-700/60 active:scale-95 transition">
+        <i class="fa-solid fa-minus"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= BOTTOM MINIMALIST FLOATING DOCK ================= -->
+  <footer class="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-xl w-[92vw]">
+    <div class="glass-panel p-2 rounded-2xl flex items-center justify-around shadow-2xl border border-slate-800/80">
+      
+      <!-- Dock Trigger: Add Primitives -->
+      <button id="btn-dock-add" class="touch-large-btn flex flex-col items-center justify-center px-3 py-2 rounded-xl hover:bg-slate-800/80 text-slate-300 hover:text-white transition group">
+        <div class="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform mb-1">
+          <i class="fa-solid fa-plus text-sm"></i>
+        </div>
+        <span class="text-[11px] font-medium">新增圖形</span>
+      </button>
+
+      <!-- Dock Trigger: Inspector / Properties -->
+      <button id="btn-dock-inspector" class="touch-large-btn flex flex-col items-center justify-center px-3 py-2 rounded-xl hover:bg-slate-800/80 text-slate-300 hover:text-white transition group">
+        <div class="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:scale-110 transition-transform mb-1">
+          <i class="fa-solid fa-sliders text-sm"></i>
+        </div>
+        <span class="text-[11px] font-medium">屬性變換</span>
+      </button>
+
+      <!-- Dock Trigger: Scene Outliner -->
+      <button id="btn-dock-outliner" class="touch-large-btn flex flex-col items-center justify-center px-3 py-2 rounded-xl hover:bg-slate-800/80 text-slate-300 hover:text-white transition group relative">
+        <div class="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 group-hover:scale-110 transition-transform mb-1">
+          <i class="fa-solid fa-layer-group text-sm"></i>
+        </div>
+        <span class="text-[11px] font-medium">物件列表</span>
+        <span id="badge-outliner-count" class="absolute top-1.5 right-2 w-4 h-4 bg-blue-600 text-[9px] font-mono text-white rounded-full flex items-center justify-center hidden">0</span>
+      </button>
+
+      <!-- Dock Trigger: Execute CSG Merge -->
+      <button id="btn-dock-csg" class="touch-large-btn flex flex-col items-center justify-center px-3 py-2 rounded-xl hover:bg-slate-800/80 text-slate-300 hover:text-white transition group">
+        <div id="csg-icon-bg" class="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform mb-1">
+          <i class="fa-solid fa-scissors text-sm"></i>
+        </div>
+        <span id="csg-btn-label" class="text-[11px] font-medium">挖空合併</span>
+      </button>
+
+      <!-- Dock Trigger: Undo / Reset -->
+      <button id="btn-dock-undo" class="touch-large-btn flex flex-col items-center justify-center px-3 py-2 rounded-xl hover:bg-slate-800/80 text-slate-300 hover:text-white transition group" title="復原上一步">
+        <div class="w-8 h-8 rounded-lg bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 group-hover:scale-110 transition-transform mb-1">
+          <i class="fa-solid fa-rotate-left text-sm"></i>
+        </div>
+        <span class="text-[11px] font-medium">復原</span>
+      </button>
+
+    </div>
+  </footer>
+
+  <!-- ================= POPUP MODAL 1: ADD PRIMITIVES (新增基礎圖形) ================= -->
+  <div id="modal-add-shape" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop bg-black/60 modal-hidden">
+    <div class="glass-modal max-w-md w-full rounded-3xl p-6 shadow-2xl modal-card flex flex-col space-y-5">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center">
+            <i class="fa-solid fa-shapes text-sm"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-100 text-base">新增基礎圖形</h3>
+            <p class="text-xs text-slate-400">選擇要加入場景的幾何體</p>
+          </div>
+        </div>
+        <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+      </div>
+
+      <!-- Mode Switcher: Solid vs Negative Part -->
+      <div class="p-1 bg-slate-900 rounded-2xl border border-slate-800 grid grid-cols-2 gap-1 text-xs">
+        <button id="tab-add-solid" class="py-2.5 rounded-xl font-semibold flex items-center justify-center space-x-2 bg-blue-600 text-white shadow-md transition">
+          <i class="fa-solid fa-cube text-sm"></i>
+          <span>實體 (Solid)</span>
+        </button>
+        <button id="tab-add-hole" class="py-2.5 rounded-xl font-semibold flex items-center justify-center space-x-2 text-slate-400 hover:text-slate-200 transition">
+          <i class="fa-solid fa-circle-minus text-rose-400 text-sm"></i>
+          <span>負空間挖空 (Hole)</span>
+        </button>
+      </div>
+
+      <!-- Primitives Selection Grid -->
+      <div class="grid grid-cols-3 gap-3">
+        <button class="btn-create-primitive p-3.5 rounded-2xl bg-slate-850 hover:bg-slate-800 border border-slate-800 hover:border-blue-500/50 flex flex-col items-center justify-center space-y-2 transition group" data-shape="box">
+          <div class="w-10 h-10 rounded-xl bg-slate-800 group-hover:bg-blue-600/20 text-blue-400 flex items-center justify-center text-xl transition-transform group-hover:scale-110">
+            <i class="fa-solid fa-cube"></i>
+          </div>
+          <span class="text-xs font-medium text-slate-200">立方體</span>
+        </button>
+
+        <button class="btn-create-primitive p-3.5 rounded-2xl bg-slate-850 hover:bg-slate-800 border border-slate-800 hover:border-blue-500/50 flex flex-col items-center justify-center space-y-2 transition group" data-shape="cylinder">
+          <div class="w-10 h-10 rounded-xl bg-slate-800 group-hover:bg-blue-600/20 text-blue-400 flex items-center justify-center text-xl transition-transform group-hover:scale-110">
+            <i class="fa-solid fa-database"></i>
+          </div>
+          <span class="text-xs font-medium text-slate-200">圓柱體</span>
+        </button>
+
+        <button class="btn-create-primitive p-3.5 rounded-2xl bg-slate-850 hover:bg-slate-800 border border-slate-800 hover:border-blue-500/50 flex flex-col items-center justify-center space-y-2 transition group" data-shape="sphere">
+          <div class="w-10 h-10 rounded-xl bg-slate-800 group-hover:bg-blue-600/20 text-blue-400 flex items-center justify-center text-xl transition-transform group-hover:scale-110">
+            <i class="fa-solid fa-globe"></i>
+          </div>
+          <span class="text-xs font-medium text-slate-200">球體</span>
+        </button>
+
+        <button class="btn-create-primitive p-3.5 rounded-2xl bg-slate-850 hover:bg-slate-800 border border-slate-800 hover:border-blue-500/50 flex flex-col items-center justify-center space-y-2 transition group" data-shape="cone">
+          <div class="w-10 h-10 rounded-xl bg-slate-800 group-hover:bg-blue-600/20 text-blue-400 flex items-center justify-center text-xl transition-transform group-hover:scale-110">
+            <i class="fa-solid fa-filter"></i>
+          </div>
+          <span class="text-xs font-medium text-slate-200">圓錐體</span>
+        </button>
+
+        <button class="btn-create-primitive p-3.5 rounded-2xl bg-slate-850 hover:bg-slate-800 border border-slate-800 hover:border-blue-500/50 flex flex-col items-center justify-center space-y-2 transition group col-span-2" data-shape="torus">
+          <div class="w-10 h-10 rounded-xl bg-slate-800 group-hover:bg-blue-600/20 text-blue-400 flex items-center justify-center text-xl transition-transform group-hover:scale-110">
+            <i class="fa-solid fa-circle-notch"></i>
+          </div>
+          <span class="text-xs font-medium text-slate-200">圓環體 (Torus)</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= POPUP MODAL 2: INSPECTOR & TRANSFORM (屬性與精準變換) ================= -->
+  <div id="modal-inspector" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop bg-black/60 modal-hidden">
+    <div class="glass-modal max-w-md w-full rounded-3xl p-6 shadow-2xl modal-card flex flex-col space-y-4 max-h-[90vh] overflow-y-auto">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center">
+            <i class="fa-solid fa-sliders text-sm"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-100 text-base">物件屬性與精準變換</h3>
+            <p class="text-xs text-slate-400">微調位置、角度、尺寸與角色</p>
+          </div>
+        </div>
+        <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+      </div>
+
+      <!-- No Selection Prompt -->
+      <div id="inspector-no-selection" class="py-12 flex flex-col items-center justify-center text-center text-slate-400 space-y-2">
+        <div class="w-12 h-12 rounded-2xl bg-slate-850 flex items-center justify-center text-slate-500 text-2xl">
+          <i class="fa-solid fa-arrow-pointer"></i>
+        </div>
+        <p class="text-xs">請先在 3D 畫布中點選要修改的物件</p>
+      </div>
+
+      <!-- Selected Object Form Controls -->
+      <div id="inspector-form-body" class="space-y-4 hidden text-xs">
+        
+        <!-- Object Name & Role Switch -->
+        <div class="space-y-2">
+          <div>
+            <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">物件名稱</label>
+            <input type="text" id="inp-obj-name" class="w-full mt-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-blue-500 font-medium">
+          </div>
+
+          <div>
+            <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">物件角色類型</label>
+            <div class="grid grid-cols-2 gap-1.5 mt-1 p-1 bg-slate-900 rounded-xl border border-slate-800">
+              <button id="btn-set-solid" class="py-2 rounded-lg font-semibold flex items-center justify-center space-x-1.5 transition">
+                <i class="fa-solid fa-cube text-blue-400"></i>
+                <span>實體 (Solid)</span>
+              </button>
+              <button id="btn-set-hole" class="py-2 rounded-lg font-semibold flex items-center justify-center space-x-1.5 transition">
+                <i class="fa-solid fa-circle-minus text-rose-400"></i>
+                <span>負空間 (Hole)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Color Picker (Solid Objects only) -->
+        <div id="wrapper-color-picker" class="flex items-center justify-between p-2.5 bg-slate-900 rounded-xl border border-slate-800">
+          <span class="font-medium text-slate-300">實體顏色</span>
+          <div class="flex items-center space-x-2">
+            <input type="color" id="inp-obj-color" class="w-8 h-8 rounded-lg border border-slate-700 bg-transparent cursor-pointer">
+            <span id="label-obj-hex" class="font-mono text-slate-400 uppercase">#3B82F6</span>
+          </div>
+        </div>
+
+        <!-- Transform Controls (XYZ with Stepper Buttons) -->
+        <!-- Position -->
+        <div class="space-y-1.5">
+          <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">座標位置 (mm)</label>
+          <div class="space-y-1.5">
+            <div class="flex items-center space-x-2 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
+              <span class="w-5 text-rose-400 font-bold font-mono text-center">X</span>
+              <button class="btn-step touch-stepper-btn w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-bold" data-axis="pos-x" data-dir="-1">-</button>
+              <input type="number" id="inp-pos-x" step="1" class="flex-1 bg-transparent text-center font-mono text-slate-100 focus:outline-none">
+              <button class="btn-step touch-stepper-btn w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-bold" data-axis="pos-x" data-dir="1">+</button>
+            </div>
+
+            <div class="flex items-center space-x-2 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
+              <span class="w-5 text-emerald-400 font-bold font-mono text-center">Y</span>
+              <button class="btn-step touch-stepper-btn w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-bold" data-axis="pos-y" data-dir="-1">-</button>
+              <input type="number" id="inp-pos-y" step="1" class="flex-1 bg-transparent text-center font-mono text-slate-100 focus:outline-none">
+              <button class="btn-step touch-stepper-btn w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-bold" data-axis="pos-y" data-dir="1">+</button>
+            </div>
+
+            <div class="flex items-center space-x-2 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
+              <span class="w-5 text-sky-400 font-bold font-mono text-center">Z</span>
+              <button class="btn-step touch-stepper-btn w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-bold" data-axis="pos-z" data-dir="-1">-</button>
+              <input type="number" id="inp-pos-z" step="1" class="flex-1 bg-transparent text-center font-mono text-slate-100 focus:outline-none">
+              <button class="btn-step touch-stepper-btn w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center font-bold" data-axis="pos-z" data-dir="1">+</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rotation -->
+        <div class="space-y-1.5">
+          <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">旋轉角度 (度)</label>
+          <div class="grid grid-cols-3 gap-2">
+            <div class="flex items-center bg-slate-900 px-2 py-1.5 rounded-xl border border-slate-800">
+              <span class="text-rose-400 font-mono font-bold mr-1">X</span>
+              <input type="number" id="inp-rot-x" step="15" class="w-full bg-transparent text-right font-mono focus:outline-none">
+            </div>
+            <div class="flex items-center bg-slate-900 px-2 py-1.5 rounded-xl border border-slate-800">
+              <span class="text-emerald-400 font-mono font-bold mr-1">Y</span>
+              <input type="number" id="inp-rot-y" step="15" class="w-full bg-transparent text-right font-mono focus:outline-none">
+            </div>
+            <div class="flex items-center bg-slate-900 px-2 py-1.5 rounded-xl border border-slate-800">
+              <span class="text-sky-400 font-mono font-bold mr-1">Z</span>
+              <input type="number" id="inp-rot-z" step="15" class="w-full bg-transparent text-right font-mono focus:outline-none">
+            </div>
+          </div>
+        </div>
+
+        <!-- Scale -->
+        <div class="space-y-1.5">
+          <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">縮放比例</label>
+          <div class="grid grid-cols-3 gap-2">
+            <div class="flex items-center bg-slate-900 px-2 py-1.5 rounded-xl border border-slate-800">
+              <span class="text-rose-400 font-mono font-bold mr-1">X</span>
+              <input type="number" id="inp-scale-x" step="0.1" class="w-full bg-transparent text-right font-mono focus:outline-none">
+            </div>
+            <div class="flex items-center bg-slate-900 px-2 py-1.5 rounded-xl border border-slate-800">
+              <span class="text-emerald-400 font-mono font-bold mr-1">Y</span>
+              <input type="number" id="inp-scale-y" step="0.1" class="w-full bg-transparent text-right font-mono focus:outline-none">
+            </div>
+            <div class="flex items-center bg-slate-900 px-2 py-1.5 rounded-xl border border-slate-800">
+              <span class="text-sky-400 font-mono font-bold mr-1">Z</span>
+              <input type="number" id="inp-scale-z" step="0.1" class="w-full bg-transparent text-right font-mono focus:outline-none">
+            </div>
+          </div>
+        </div>
+
+        <!-- Duplicate / Delete Action Buttons -->
+        <div class="pt-2 grid grid-cols-2 gap-2">
+          <button id="btn-inspector-duplicate" class="touch-large-btn py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 font-semibold text-slate-200 flex items-center justify-center space-x-1.5 transition">
+            <i class="fa-regular fa-copy"></i>
+            <span>複製物件</span>
+          </button>
+          <button id="btn-inspector-delete" class="touch-large-btn py-2.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-800/80 font-semibold text-rose-300 flex items-center justify-center space-x-1.5 transition">
+            <i class="fa-regular fa-trash-can"></i>
+            <span>刪除物件</span>
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= POPUP MODAL 3: OUTLINER (場景物件列表) ================= -->
+  <div id="modal-outliner" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop bg-black/60 modal-hidden">
+    <div class="glass-modal max-w-md w-full rounded-3xl p-6 shadow-2xl modal-card flex flex-col space-y-4 max-h-[85vh]">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-sky-600/20 text-sky-400 border border-sky-500/30 flex items-center justify-center">
+            <i class="fa-solid fa-layer-group text-sm"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-100 text-base">場景物件清單</h3>
+            <p class="text-xs text-slate-400">管理場景中所有的實體與挖空組件</p>
+          </div>
+        </div>
+        <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+      </div>
+
+      <!-- Outliner List Scroll Area -->
+      <div id="outliner-modal-list" class="flex-1 overflow-y-auto space-y-2 max-h-[50vh] pr-1">
+        <!-- Dynamically rendered items -->
+      </div>
+
+      <!-- Clear All Scene Button -->
+      <div class="pt-2 border-t border-slate-800 flex justify-between items-center">
+        <span id="outliner-modal-count" class="text-xs text-slate-400">共 0 個物件</span>
+        <button id="btn-clear-all" class="px-3 py-1.5 rounded-xl bg-rose-950/50 hover:bg-rose-900 border border-rose-800/60 text-xs font-semibold text-rose-300 transition flex items-center space-x-1">
+          <i class="fa-solid fa-trash-arrow-up"></i>
+          <span>清空畫布</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= POPUP MODAL 4: STL EXPORT (匯出 .STL 設定) ================= -->
+  <div id="modal-export-stl" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop bg-black/60 modal-hidden">
+    <div class="glass-modal max-w-md w-full rounded-3xl p-6 shadow-2xl modal-card flex flex-col space-y-5">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+            <i class="fa-solid fa-file-export text-sm"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-100 text-base">匯出 3D 列印檔 (.STL)</h3>
+            <p class="text-xs text-slate-400">自動執行挖空布林運算並校正座標</p>
+          </div>
+        </div>
+        <button class="btn-close-modal w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+      </div>
+
+      <!-- Settings Form -->
+      <div class="space-y-4 text-xs">
+        <div>
+          <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">檔案名稱</label>
+          <input type="text" id="inp-export-filename" value="PolyCAD_Model" class="w-full mt-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 font-mono focus:outline-none focus:border-emerald-500">
+        </div>
+
+        <div class="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-2">
+          <div class="flex items-center justify-between text-slate-300">
+            <span>坐標軸系統自動校正</span>
+            <span class="text-emerald-400 font-mono">Z-up (3D Print Standard)</span>
+          </div>
+          <div class="flex items-center justify-between text-slate-300">
+            <span>檔案格式</span>
+            <span class="text-slate-200 font-mono">Binary STL (二進位)</span>
+          </div>
+        </div>
+
+        <div class="p-3 bg-emerald-950/30 rounded-2xl border border-emerald-800/40 text-emerald-300 text-[11px] leading-relaxed flex items-start space-x-2">
+          <i class="fa-solid fa-circle-check text-base mt-0.5 text-emerald-400 shrink-0"></i>
+          <span>按一下下方按鈕後，系統會在背景自動將所有的「實體」做聯集並減去所有的「負空間挖空體」，產生可以直接進行 3D 列印切片（Cura / PrusaSlicer / Bambu Studio）的封閉模型。</span>
+        </div>
+      </div>
+
+      <!-- Action Download Button -->
+      <button id="btn-confirm-export" class="touch-large-btn w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-xl shadow-emerald-600/25 flex items-center justify-center space-x-2 transition">
+        <i class="fa-solid fa-download"></i>
+        <span>立即計算並下載 .STL 檔案</span>
+      </button>
+
+    </div>
+  </div>
+
+  <!-- ================= TOAST NOTIFICATION CONTAINER ================= -->
+  <div id="toast-container" class="fixed top-16 right-4 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+  <!-- ================= APPLICATION LOGIC (ES MODULE) ================= -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { TransformControls } from 'three/addons/controls/TransformControls.js';
+    import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+    import { SUBTRACTION, ADDITION, Brush, Evaluator } from 'three-bvh-csg';
+
+    // ------------------------------------------------------------------
+    // GLOBAL STATE MANAGEMENT
+    // ------------------------------------------------------------------
+    let scene, camera, renderer, orbitControls, transformControls;
+    let raycaster, mouse;
+    const sceneObjects = []; // Holds user-editable Mesh items
+    let selectedObject = null;
+    let objectCounter = 0;
+
+    // Device & UI Mode
+    let deviceMode = 'desktop'; // 'desktop' | 'touch'
+    let currentAddModeHole = false; // Add Shape modal mode
+    let snapToGrid = false;
+
+    // CSG State
+    let isCSGMerged = false;
+    let csgMergedMesh = null;
+
+    // Undo Stack
+    const historyStack = [];
+    const MAX_HISTORY = 15;
+
+    // Shared Standard Materials
+    const HOLE_MATERIAL = new THREE.MeshStandardMaterial({
+      color: 0xef4444,
+      transparent: true,
+      opacity: 0.42,
+      roughness: 0.3,
+      metalness: 0.1,
+      depthWrite: false
+    });
+
+    const CSG_MERGED_MATERIAL = new THREE.MeshStandardMaterial({
+      color: 0x3b82f6,
+      roughness: 0.35,
+      metalness: 0.2
+    });
+
+    // ------------------------------------------------------------------
+    // INITIALIZATION
+    // ------------------------------------------------------------------
+    window.addEventListener('DOMContentLoaded', () => {
+      initThreeJS();
+      detectInitialDeviceMode();
+      initUIEventListeners();
+      createStarterDemoScene();
+      saveHistorySnapshot();
+      animate();
+    });
+
+    function initThreeJS() {
+      const container = document.getElementById('viewport-container');
+      const canvas = document.getElementById('three-canvas');
+
+      // Scene Setup
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x090d16);
+      scene.fog = new THREE.FogExp2(0x090d16, 0.0025);
+
+      // Camera Setup
+      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+      camera.position.set(50, 40, 65);
+
+      // Renderer Setup
+      renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        antialias: true,
+        powerPreference: 'high-performance'
+      });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+      // Orbit Controls Setup
+      orbitControls = new OrbitControls(camera, renderer.domElement);
+      orbitControls.enableDamping = true;
+      orbitControls.dampingFactor = 0.05;
+      orbitControls.maxPolarAngle = Math.PI / 2 + 0.05;
+
+      // Grid Helper (1 unit = 1 mm CAD feel)
+      const gridHelper = new THREE.GridHelper(120, 120, 0x38bdf8, 0x1e293b);
+      gridHelper.position.y = 0;
+      scene.add(gridHelper);
+
+      // Studio Three-Point Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+      scene.add(ambientLight);
+
+      const mainLight = new THREE.DirectionalLight(0xffffff, 1.1);
+      mainLight.position.set(45, 75, 45);
+      mainLight.castShadow = true;
+      mainLight.shadow.mapSize.width = 1024;
+      mainLight.shadow.mapSize.height = 1024;
+      scene.add(mainLight);
+
+      const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.45);
+      fillLight.position.set(-45, 25, -45);
+      scene.add(fillLight);
+
+      // Transform Controls (Gizmo)
+      transformControls = new TransformControls(camera, renderer.domElement);
+      transformControls.setSize(0.85);
+      scene.add(transformControls);
+
+      transformControls.addEventListener('dragging-changed', (e) => {
+        orbitControls.enabled = !e.value;
+        if (!e.value) {
+          saveHistorySnapshot(); // Save snapshot after dragging stops
+        }
+      });
+
+      transformControls.addEventListener('change', () => {
+        if (selectedObject && !isCSGMerged) {
+          updateInspectorFormValues(selectedObject);
+        }
+      });
+
+      // Raycaster for viewport selection
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+
+      // Window Resize Listener
+      window.addEventListener('resize', onWindowResize);
+
+      // Canvas Pointer Click Handler
+      canvas.addEventListener('pointerdown', onCanvasPointerDown);
+    }
+
+    // ------------------------------------------------------------------
+    // DEVICE MODE SWITCHER (DESKTOP VS. TOUCH)
+    // ------------------------------------------------------------------
+    function detectInitialDeviceMode() {
+      const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+      setDeviceMode(isTouchDevice ? 'touch' : 'desktop');
+    }
+
+    function setDeviceMode(mode) {
+      deviceMode = mode;
+      const btnDesktop = document.getElementById('mode-desktop');
+      const btnTouch = document.getElementById('mode-touch');
+      const touchNavPad = document.getElementById('touch-nav-pad');
+
+      if (mode === 'touch') {
+        document.body.classList.add('touch-mode');
+        btnTouch.className = "px-2.5 py-1 rounded-lg font-medium transition flex items-center space-x-1 bg-slate-800 text-blue-400 shadow";
+        btnDesktop.className = "px-2.5 py-1 rounded-lg font-medium transition flex items-center space-x-1 text-slate-400 hover:text-slate-200";
+        touchNavPad.classList.remove('hidden');
+        touchNavPad.classList.add('flex');
+
+        if (transformControls) transformControls.setSize(1.45); // Enlarge gizmo handles for touch
+      } else {
+        document.body.classList.remove('touch-mode');
+        btnDesktop.className = "px-2.5 py-1 rounded-lg font-medium transition flex items-center space-x-1 bg-slate-800 text-blue-400 shadow";
+        btnTouch.className = "px-2.5 py-1 rounded-lg font-medium transition flex items-center space-x-1 text-slate-400 hover:text-slate-200";
+        touchNavPad.classList.add('hidden');
+        touchNavPad.classList.remove('flex');
+
+        if (transformControls) transformControls.setSize(0.85);
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // PRIMITIVE CREATION & OBJECT SELECTION
+    // ------------------------------------------------------------------
+    function createPrimitive(type, isNegative = false) {
+      if (isCSGMerged) unmergeCSG();
+
+      let geometry;
+      let labelName = isNegative ? '挖空' : '實體';
+
+      switch (type) {
+        case 'box':
+          geometry = new THREE.BoxGeometry(20, 20, 20);
+          labelName += ' 立方體';
+          break;
+        case 'cylinder':
+          geometry = new THREE.CylinderGeometry(10, 10, 24, 32);
+          labelName += ' 圓柱體';
+          break;
+        case 'sphere':
+          geometry = new THREE.SphereGeometry(12, 32, 32);
+          labelName += ' 球體';
+          break;
+        case 'cone':
+          geometry = new THREE.ConeGeometry(10, 22, 32);
+          labelName += ' 圓錐體';
+          break;
+        case 'torus':
+          geometry = new THREE.TorusGeometry(12, 4, 16, 32);
+          labelName += ' 圓環體';
+          break;
+        default:
+          geometry = new THREE.BoxGeometry(15, 15, 15);
+      }
+
+      objectCounter++;
+      const name = `${labelName} #${objectCounter}`;
+      const solidColor = isNegative ? 0xef4444 : getRandomMatColor();
+
+      const material = isNegative 
+        ? HOLE_MATERIAL.clone()
+        : new THREE.MeshStandardMaterial({
+            color: solidColor,
+            roughness: 0.35,
+            metalness: 0.15
+          });
+
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = name;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.position.set(0, 12, 0);
+
+      mesh.userData = {
+        isNegative: isNegative,
+        color: solidColor,
+        primitiveType: type
+      };
+
+      if (isNegative) {
+        attachHoleEdgeOutline(mesh);
+      }
+
+      scene.add(mesh);
+      sceneObjects.push(mesh);
+
+      updateOutlinerBadge();
+      selectObject(mesh);
+      saveHistorySnapshot();
+      showToast(`已新增 ${name}`, "info");
+    }
+
+    function attachHoleEdgeOutline(mesh) {
+      removeHoleEdgeOutline(mesh);
+      const edges = new THREE.EdgesGeometry(mesh.geometry);
+      const line = new THREE.LineSegments(
+        edges,
+        new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 2 })
+      );
+      line.name = 'holeOutline';
+      mesh.add(line);
+    }
+
+    function removeHoleEdgeOutline(mesh) {
+      const existing = mesh.getObjectByName('holeOutline');
+      if (existing) {
+        mesh.remove(existing);
+        existing.geometry.dispose();
+        existing.material.dispose();
+      }
+    }
+
+    function selectObject(obj) {
+      if (isCSGMerged) return;
+
+      selectedObject = obj;
+      if (obj) {
+        transformControls.attach(obj);
+        updateInspectorFormValues(obj);
+      } else {
+        transformControls.detach();
+      }
+    }
+
+    function deleteObject(obj) {
+      if (!obj || isCSGMerged) return;
+
+      transformControls.detach();
+      scene.remove(obj);
+
+      obj.geometry.dispose();
+      if (Array.isArray(obj.material)) {
+        obj.material.forEach(m => m.dispose());
+      } else {
+        obj.material.dispose();
+      }
+
+      const idx = sceneObjects.indexOf(obj);
+      if (idx > -1) sceneObjects.splice(idx, 1);
+
+      if (selectedObject === obj) {
+        selectedObject = null;
+      }
+
+      updateOutlinerBadge();
+      saveHistorySnapshot();
+      showToast("已刪除物件", "warning");
+    }
+
+    function duplicateObject(obj) {
+      if (!obj || isCSGMerged) return;
+
+      const cloneGeom = obj.geometry.clone();
+      const cloneMat = obj.material.clone();
+      const cloneMesh = new THREE.Mesh(cloneGeom, cloneMat);
+
+      objectCounter++;
+      cloneMesh.name = `${obj.name} (副本)`;
+      cloneMesh.position.copy(obj.position).add(new THREE.Vector3(6, 0, 6));
+      cloneMesh.rotation.copy(obj.rotation);
+      cloneMesh.scale.copy(obj.scale);
+      cloneMesh.userData = { ...obj.userData };
+
+      if (cloneMesh.userData.isNegative) {
+        attachHoleEdgeOutline(cloneMesh);
+      }
+
+      scene.add(cloneMesh);
+      sceneObjects.push(cloneMesh);
+
+      updateOutlinerBadge();
+      selectObject(cloneMesh);
+      saveHistorySnapshot();
+      showToast("已複製物件", "info");
+    }
+
+    // ------------------------------------------------------------------
+    // CSG BOOLEAN SUBTRACTION / UNION LOGIC
+    // ------------------------------------------------------------------
+    function evaluateCSGModel() {
+      const solids = sceneObjects.filter(o => !o.userData.isNegative && o.visible);
+      const holes = sceneObjects.filter(o => o.userData.isNegative && o.visible);
+
+      if (solids.length === 0) {
+        throw new Error("場景中至少需要有一個「實體」物件才能進行布林運算！");
+      }
+
+      const evaluator = new Evaluator();
+      evaluator.useGroupMaterials = false;
+
+      function meshToBrush(mesh) {
+        mesh.updateMatrixWorld(true);
+        const clonedGeom = mesh.geometry.clone();
+        clonedGeom.applyMatrix4(mesh.matrixWorld);
+        clonedGeom.computeVertexNormals();
+
+        const brush = new Brush(clonedGeom, CSG_MERGED_MATERIAL.clone());
+        brush.updateMatrixWorld(true);
+        return brush;
+      }
+
+      // Combine all Solid objects
+      let baseBrush = meshToBrush(solids[0]);
+
+      for (let i = 1; i < solids.length; i++) {
+        const solidBrush = meshToBrush(solids[i]);
+        baseBrush = evaluator.evaluate(baseBrush, solidBrush, ADDITION);
+      }
+
+      // Subtract all Negative Hole objects
+      for (let i = 0; i < holes.length; i++) {
+        const holeBrush = meshToBrush(holes[i]);
+        baseBrush = evaluator.evaluate(baseBrush, holeBrush, SUBTRACTION);
+      }
+
+      baseBrush.material = CSG_MERGED_MATERIAL;
+      baseBrush.castShadow = true;
+      baseBrush.receiveShadow = true;
+
+      return baseBrush;
+    }
+
+    function mergeCSG() {
+      if (sceneObjects.length === 0) {
+        showToast("場景是空的，請先新增圖形！", "warning");
+        return;
+      }
+
+      try {
+        const mergedBrush = evaluateCSGModel();
+
+        sceneObjects.forEach(obj => obj.visible = false);
+        transformControls.detach();
+
+        csgMergedMesh = mergedBrush;
+        scene.add(csgMergedMesh);
+
+        isCSGMerged = true;
+        updateCSGButtonState();
+
+        showToast("成功執行挖空合併！", "success");
+      } catch (err) {
+        console.error(err);
+        showToast(err.message || "計算布林挖空時發生錯誤", "error");
+      }
+    }
+
+    function unmergeCSG() {
+      if (!isCSGMerged) return;
+
+      if (csgMergedMesh) {
+        scene.remove(csgMergedMesh);
+        csgMergedMesh.geometry.dispose();
+        csgMergedMesh = null;
+      }
+
+      sceneObjects.forEach(obj => obj.visible = true);
+      isCSGMerged = false;
+      updateCSGButtonState();
+      showToast("已恢復編輯狀態", "info");
+    }
+
+    function toggleCSGMerge() {
+      if (isCSGMerged) {
+        unmergeCSG();
+      } else {
+        mergeCSG();
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // BINARY STL EXPORT WITH Z-UP ALIGNMENT
+    // ------------------------------------------------------------------
+    function executeSTLExport() {
+      if (sceneObjects.length === 0) {
+        showToast("場景是空的，無法匯出！", "warning");
+        return;
+      }
+
+      try {
+        let exportTargetMesh;
+        let isTemp = false;
+
+        if (isCSGMerged && csgMergedMesh) {
+          exportTargetMesh = csgMergedMesh;
+        } else {
+          exportTargetMesh = evaluateCSGModel();
+          isTemp = true;
+        }
+
+        if (!exportTargetMesh) {
+          showToast("無法生成可匯出的模型幾何體", "error");
+          return;
+        }
+
+        // Align coordinates from Three.js Y-up to 3D Printing Z-up
+        const printGeom = exportTargetMesh.geometry.clone();
+        printGeom.rotateX(Math.PI / 2);
+
+        const printMesh = new THREE.Mesh(printGeom, exportTargetMesh.material);
+
+        const exporter = new STLExporter();
+        const stlBinary = exporter.parse(printMesh, { binary: true });
+
+        const filenameInput = document.getElementById('inp-export-filename').value.trim() || 'PolyCAD_Model';
+        const blob = new Blob([stlBinary], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${filenameInput}_${Date.now()}.stl`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        if (isTemp) printGeom.dispose();
+
+        closeModal('modal-export-stl');
+        showToast("已成功匯出 Binary .STL 檔案！", "success");
+      } catch (err) {
+        console.error(err);
+        showToast(`匯出失敗: ${err.message}`, "error");
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // UNDO / SNAPSHOT SYSTEM
+    // ------------------------------------------------------------------
+    function saveHistorySnapshot() {
+      if (isCSGMerged) return;
+
+      const snapshot = sceneObjects.map(obj => ({
+        name: obj.name,
+        type: obj.userData.primitiveType,
+        isNegative: obj.userData.isNegative,
+        color: obj.userData.color,
+        position: obj.position.clone(),
+        rotation: obj.rotation.clone(),
+        scale: obj.scale.clone()
+      }));
+
+      historyStack.push(snapshot);
+      if (historyStack.length > MAX_HISTORY) {
+        historyStack.shift();
+      }
+    }
+
+    function undoLastAction() {
+      if (isCSGMerged) {
+        unmergeCSG();
+        return;
+      }
+
+      if (historyStack.length <= 1) {
+        showToast("已是最新狀態，無法再復原", "info");
+        return;
+      }
+
+      // Pop current state
+      historyStack.pop();
+      const previousState = historyStack[historyStack.length - 1];
+
+      // Clear current scene objects
+      transformControls.detach();
+      sceneObjects.forEach(obj => {
+        scene.remove(obj);
+        obj.geometry.dispose();
+      });
+      sceneObjects.length = 0;
+
+      // Recreate objects from snapshot
+      previousState.forEach(item => {
+        let geometry;
+        switch (item.type) {
+          case 'box': geometry = new THREE.BoxGeometry(20, 20, 20); break;
+          case 'cylinder': geometry = new THREE.CylinderGeometry(10, 10, 24, 32); break;
+          case 'sphere': geometry = new THREE.SphereGeometry(12, 32, 32); break;
+          case 'cone': geometry = new THREE.ConeGeometry(10, 22, 32); break;
+          case 'torus': geometry = new THREE.TorusGeometry(12, 4, 16, 32); break;
+          default: geometry = new THREE.BoxGeometry(15, 15, 15);
+        }
+
+        const material = item.isNegative
+          ? HOLE_MATERIAL.clone()
+          : new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.35, metalness: 0.15 });
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = item.name;
+        mesh.position.copy(item.position);
+        mesh.rotation.copy(item.rotation);
+        mesh.scale.copy(item.scale);
+        mesh.userData = { isNegative: item.isNegative, color: item.color, primitiveType: item.type };
+
+        if (item.isNegative) attachHoleEdgeOutline(mesh);
+
+        scene.add(mesh);
+        sceneObjects.push(mesh);
+      });
+
+      selectedObject = null;
+      updateOutlinerBadge();
+      showToast("已復原上一步動作", "info");
+    }
+
+    function clearEntireScene() {
+      if (sceneObjects.length === 0) return;
+
+      if (isCSGMerged) unmergeCSG();
+
+      transformControls.detach();
+      sceneObjects.forEach(obj => {
+        scene.remove(obj);
+        obj.geometry.dispose();
+      });
+      sceneObjects.length = 0;
+      selectedObject = null;
+
+      updateOutlinerBadge();
+      closeModal('modal-outliner');
+      saveHistorySnapshot();
+      showToast("已清空所有畫布內容", "warning");
+    }
+
+    // ------------------------------------------------------------------
+    // UI MODAL MANAGER & LISTENERS
+    // ------------------------------------------------------------------
+    function openModal(modalId) {
+      const modal = document.getElementById(modalId);
+      if (!modal) return;
+
+      if (modalId === 'modal-inspector') {
+        renderInspectorModalContent();
+      } else if (modalId === 'modal-outliner') {
+        renderOutlinerModalContent();
+      }
+
+      modal.classList.remove('modal-hidden');
+    }
+
+    function closeModal(modalId) {
+      const modal = document.getElementById(modalId);
+      if (modal) modal.classList.add('modal-hidden');
+    }
+
+    function closeAllModals() {
+      document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.add('modal-hidden'));
+    }
+
+    function initUIEventListeners() {
+      // Device Mode Switcher Buttons
+      document.getElementById('mode-desktop').addEventListener('click', () => setDeviceMode('desktop'));
+      document.getElementById('mode-touch').addEventListener('click', () => setDeviceMode('touch'));
+
+      // Transform Mode Buttons
+      document.getElementById('tool-translate').addEventListener('click', () => setTransformMode('translate'));
+      document.getElementById('tool-rotate').addEventListener('click', () => setTransformMode('rotate'));
+      document.getElementById('tool-scale').addEventListener('click', () => setTransformMode('scale'));
+
+      // Snap to Grid toggle
+      document.getElementById('btn-snap-toggle').addEventListener('click', () => {
+        snapToGrid = !snapToGrid;
+        transformControls.setTranslationSnap(snapToGrid ? 5 : null);
+        transformControls.setRotationSnap(snapToGrid ? THREE.MathUtils.degToRad(15) : null);
+        document.getElementById('snap-text').innerText = `貼齊: ${snapToGrid ? '開' : '關'}`;
+        showToast(snapToGrid ? "已開啟網格貼齊 (5mm)" : "已關閉網格貼齊", "info");
+      });
+
+      // Bottom Dock Triggers
+      document.getElementById('btn-dock-add').addEventListener('click', () => openModal('modal-add-shape'));
+      document.getElementById('btn-dock-inspector').addEventListener('click', () => openModal('modal-inspector'));
+      document.getElementById('btn-dock-outliner').addEventListener('click', () => openModal('modal-outliner'));
+      document.getElementById('btn-dock-csg').addEventListener('click', toggleCSGMerge);
+      document.getElementById('btn-dock-undo').addEventListener('click', undoLastAction);
+
+      // Top Bar Export Trigger
+      document.getElementById('btn-open-export').addEventListener('click', () => openModal('modal-export-stl'));
+      document.getElementById('btn-confirm-export').addEventListener('click', executeSTLExport);
+
+      // Close modal backdrop / 'X' buttons
+      document.querySelectorAll('.btn-close-modal').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const modal = btn.closest('.modal-backdrop');
+          if (modal) modal.classList.add('modal-hidden');
+        });
+      });
+
+      document.querySelectorAll('.modal-backdrop').forEach(modal => {
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) modal.classList.add('modal-hidden');
+        });
+      });
+
+      // Add Primitive Modal Tabs (Solid vs Negative Hole)
+      const tabSolid = document.getElementById('tab-add-solid');
+      const tabHole = document.getElementById('tab-add-hole');
+
+      tabSolid.addEventListener('click', () => {
+        currentAddModeHole = false;
+        tabSolid.className = "py-2.5 rounded-xl font-semibold flex items-center justify-center space-x-2 bg-blue-600 text-white shadow-md transition";
+        tabHole.className = "py-2.5 rounded-xl font-semibold flex items-center justify-center space-x-2 text-slate-400 hover:text-slate-200 transition";
+      });
+
+      tabHole.addEventListener('click', () => {
+        currentAddModeHole = true;
+        tabHole.className = "py-2.5 rounded-xl font-semibold flex items-center justify-center space-x-2 bg-rose-600 text-white shadow-md transition";
+        tabSolid.className = "py-2.5 rounded-xl font-semibold flex items-center justify-center space-x-2 text-slate-400 hover:text-slate-200 transition";
+      });
+
+      // Primitive Selection Grid Buttons
+      document.querySelectorAll('.btn-create-primitive').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const shapeType = btn.getAttribute('data-shape');
+          createPrimitive(shapeType, currentAddModeHole);
+          closeModal('modal-add-shape');
+        });
+      });
+
+      // Touch View Pad Buttons
+      document.getElementById('btn-view-iso').addEventListener('click', () => setCameraPresetView('iso'));
+      document.getElementById('btn-view-top').addEventListener('click', () => setCameraPresetView('top'));
+      document.getElementById('btn-view-front').addEventListener('click', () => setCameraPresetView('front'));
+      document.getElementById('btn-zoom-in').addEventListener('click', () => adjustCameraZoom(0.8));
+      document.getElementById('btn-zoom-out').addEventListener('click', () => adjustCameraZoom(1.25));
+
+      // Inspector Form Input Bindings
+      document.getElementById('inp-obj-name').addEventListener('input', (e) => {
+        if (selectedObject) selectedObject.name = e.target.value;
+      });
+
+      document.getElementById('btn-set-solid').addEventListener('click', () => setSelectedObjectType(false));
+      document.getElementById('btn-set-hole').addEventListener('click', () => setSelectedObjectType(true));
+
+      document.getElementById('inp-obj-color').addEventListener('input', (e) => {
+        if (selectedObject && !selectedObject.userData.isNegative) {
+          const hex = e.target.value;
+          selectedObject.material.color.set(hex);
+          selectedObject.userData.color = parseInt(hex.replace('#', '0x'));
+          document.getElementById('label-obj-hex').innerText = hex.toUpperCase();
+        }
+      });
+
+      // Stepper button event handlers
+      document.querySelectorAll('.btn-step').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (!selectedObject) return;
+          const axisKey = btn.getAttribute('data-axis');
+          const dir = parseFloat(btn.getAttribute('data-dir'));
+          
+          if (axisKey === 'pos-x') selectedObject.position.x += dir;
+          if (axisKey === 'pos-y') selectedObject.position.y += dir;
+          if (axisKey === 'pos-z') selectedObject.position.z += dir;
+
+          updateInspectorFormValues(selectedObject);
+          saveHistorySnapshot();
+        });
+      });
+
+      // Numeric transform inputs
+      ['pos-x', 'pos-y', 'pos-z', 'rot-x', 'rot-y', 'rot-z', 'scale-x', 'scale-y', 'scale-z'].forEach(id => {
+        document.getElementById(`inp-${id}`).addEventListener('change', updateObjectTransformFromForm);
+      });
+
+      document.getElementById('btn-inspector-duplicate').addEventListener('click', () => {
+        duplicateObject(selectedObject);
+        closeModal('modal-inspector');
+      });
+
+      document.getElementById('btn-inspector-delete').addEventListener('click', () => {
+        deleteObject(selectedObject);
+        closeModal('modal-inspector');
+      });
+
+      document.getElementById('btn-clear-all').addEventListener('click', clearEntireScene);
+
+      // Keyboard Shortcuts
+      window.addEventListener('keydown', (e) => {
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+
+        if (e.key.toLowerCase() === 'w') setTransformMode('translate');
+        if (e.key.toLowerCase() === 'e') setTransformMode('rotate');
+        if (e.key.toLowerCase() === 'r') setTransformMode('scale');
+        if (e.key === 'Escape') closeAllModals();
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObject) deleteObject(selectedObject);
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') undoLastAction();
+      });
+    }
+
+    function setTransformMode(mode) {
+      transformControls.setMode(mode);
+      ['translate', 'rotate', 'scale'].forEach(m => {
+        const btn = document.getElementById(`tool-${m}`);
+        if (m === mode) {
+          btn.className = "tool-btn px-3 py-1.5 rounded-lg text-xs font-medium flex items-center space-x-1.5 bg-blue-600 text-white shadow-sm transition";
+        } else {
+          btn.className = "tool-btn px-3 py-1.5 rounded-lg text-xs font-medium flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition";
+        }
+      });
+    }
+
+    function setSelectedObjectType(isNegative) {
+      if (!selectedObject || selectedObject.userData.isNegative === isNegative) return;
+
+      selectedObject.userData.isNegative = isNegative;
+
+      if (isNegative) {
+        selectedObject.material = HOLE_MATERIAL.clone();
+        attachHoleEdgeOutline(selectedObject);
+      } else {
+        removeHoleEdgeOutline(selectedObject);
+        const col = selectedObject.userData.color || 0x3b82f6;
+        selectedObject.material = new THREE.MeshStandardMaterial({
+          color: col,
+          roughness: 0.35,
+          metalness: 0.15
+        });
+      }
+
+      renderInspectorModalContent();
+      saveHistorySnapshot();
+      showToast(`已切換為 ${isNegative ? '負空間 (Hole)' : '實體 (Solid)'}`, "info");
+    }
+
+    function updateObjectTransformFromForm() {
+      if (!selectedObject) return;
+
+      const px = parseFloat(document.getElementById('inp-pos-x').value) || 0;
+      const py = parseFloat(document.getElementById('inp-pos-y').value) || 0;
+      const pz = parseFloat(document.getElementById('inp-pos-z').value) || 0;
+      selectedObject.position.set(px, py, pz);
+
+      const rx = THREE.MathUtils.degToRad(parseFloat(document.getElementById('inp-rot-x').value) || 0);
+      const ry = THREE.MathUtils.degToRad(parseFloat(document.getElementById('inp-rot-y').value) || 0);
+      const rz = THREE.MathUtils.degToRad(parseFloat(document.getElementById('inp-rot-z').value) || 0);
+      selectedObject.rotation.set(rx, ry, rz);
+
+      const sx = parseFloat(document.getElementById('inp-scale-x').value) || 1;
+      const sy = parseFloat(document.getElementById('inp-scale-y').value) || 1;
+      const sz = parseFloat(document.getElementById('inp-scale-z').value) || 1;
+      selectedObject.scale.set(sx, sy, sz);
+    }
+
+    function updateInspectorFormValues(obj) {
+      if (!obj) return;
+
+      document.getElementById('inp-pos-x').value = obj.position.x.toFixed(1);
+      document.getElementById('inp-pos-y').value = obj.position.y.toFixed(1);
+      document.getElementById('inp-pos-z').value = obj.position.z.toFixed(1);
+
+      document.getElementById('inp-rot-x').value = THREE.MathUtils.radToDeg(obj.rotation.x).toFixed(0);
+      document.getElementById('inp-rot-y').value = THREE.MathUtils.radToDeg(obj.rotation.y).toFixed(0);
+      document.getElementById('inp-rot-z').value = THREE.MathUtils.radToDeg(obj.rotation.z).toFixed(0);
+
+      document.getElementById('inp-scale-x').value = obj.scale.x.toFixed(2);
+      document.getElementById('inp-scale-y').value = obj.scale.y.toFixed(2);
+      document.getElementById('inp-scale-z').value = obj.scale.z.toFixed(2);
+    }
+
+    function renderInspectorModalContent() {
+      const emptyState = document.getElementById('inspector-no-selection');
+      const formBody = document.getElementById('inspector-form-body');
+
+      if (!selectedObject) {
+        emptyState.classList.remove('hidden');
+        formBody.classList.add('hidden');
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+      formBody.classList.remove('hidden');
+
+      document.getElementById('inp-obj-name').value = selectedObject.name;
+
+      const isNeg = selectedObject.userData.isNegative;
+      const btnSolid = document.getElementById('btn-set-solid');
+      const btnHole = document.getElementById('btn-set-hole');
+      const colorWrapper = document.getElementById('wrapper-color-picker');
+
+      if (isNeg) {
+        btnSolid.className = "py-2 rounded-lg font-semibold flex items-center justify-center space-x-1.5 transition text-slate-400 hover:text-slate-200";
+        btnHole.className = "py-2 rounded-lg font-semibold flex items-center justify-center space-x-1.5 transition bg-rose-600 text-white shadow";
+        colorWrapper.classList.add('hidden');
+      } else {
+        btnSolid.className = "py-2 rounded-lg font-semibold flex items-center justify-center space-x-1.5 transition bg-blue-600 text-white shadow";
+        btnHole.className = "py-2 rounded-lg font-semibold flex items-center justify-center space-x-1.5 transition text-slate-400 hover:text-slate-200";
+        colorWrapper.classList.remove('hidden');
+
+        const hexStr = '#' + (selectedObject.userData.color ? selectedObject.userData.color.toString(16).padStart(6, '0') : '3b82f6');
+        document.getElementById('inp-obj-color').value = hexStr;
+        document.getElementById('label-obj-hex').innerText = hexStr.toUpperCase();
+      }
+
+      updateInspectorFormValues(selectedObject);
+    }
+
+    function renderOutlinerModalContent() {
+      const container = document.getElementById('outliner-modal-list');
+      container.innerHTML = '';
+
+      document.getElementById('outliner-modal-count').innerText = `共 ${sceneObjects.length} 個物件`;
+
+      if (sceneObjects.length === 0) {
+        container.innerHTML = `
+          <div class="py-8 text-center text-slate-500 text-xs">
+            目前場景中沒有任何圖形物件
+          </div>
+        `;
+        return;
+      }
+
+      sceneObjects.forEach(obj => {
+        const isSelected = obj === selectedObject;
+        const isNeg = obj.userData.isNegative;
+
+        const card = document.createElement('div');
+        card.className = `p-3 rounded-2xl border transition flex items-center justify-between ${
+          isSelected 
+            ? 'bg-blue-600/20 border-blue-500/50 text-white font-medium' 
+            : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-850'
+        }`;
+
+        card.innerHTML = `
+          <div class="flex items-center space-x-3 cursor-pointer flex-1 truncate">
+            <div class="w-8 h-8 rounded-xl ${isNeg ? 'bg-rose-500/20 text-rose-400' : 'bg-blue-500/20 text-blue-400'} flex items-center justify-center shrink-0">
+              <i class="${isNeg ? 'fa-solid fa-circle-minus' : 'fa-solid fa-cube'}"></i>
+            </div>
+            <div class="truncate">
+              <div class="text-xs truncate font-medium">${obj.name}</div>
+              <div class="text-[10px] text-slate-400">${isNeg ? '負空間 (Hole)' : '實體 (Solid)'}</div>
+            </div>
+          </div>
+          <div class="flex items-center space-x-1">
+            <button class="btn-item-delete w-8 h-8 rounded-lg hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 flex items-center justify-center transition">
+              <i class="fa-regular fa-trash-can text-xs"></i>
+            </button>
+          </div>
+        `;
+
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.btn-item-delete')) {
+            deleteObject(obj);
+            renderOutlinerModalContent();
+          } else {
+            selectObject(obj);
+            renderOutlinerModalContent();
+          }
+        });
+
+        container.appendChild(card);
+      });
+    }
+
+    function updateOutlinerBadge() {
+      const badge = document.getElementById('badge-outliner-count');
+      if (sceneObjects.length > 0) {
+        badge.innerText = sceneObjects.length;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
+
+    function updateCSGButtonState() {
+      const pill = document.getElementById('csg-status-pill');
+      const label = document.getElementById('csg-btn-label');
+      const iconBg = document.getElementById('csg-icon-bg');
+
+      if (isCSGMerged) {
+        pill.innerText = "合併預覽模式";
+        pill.className = "text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-medium";
+        label.innerText = "恢復編輯";
+        iconBg.className = "w-8 h-8 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-lg shadow-amber-500/30 mb-1";
+      } else {
+        pill.innerText = "編輯模式";
+        pill.className = "text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium";
+        label.innerText = "挖空合併";
+        iconBg.className = "w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform mb-1";
+      }
+    }
+
+    function setCameraPresetView(view) {
+      if (view === 'iso') {
+        camera.position.set(50, 40, 65);
+      } else if (view === 'top') {
+        camera.position.set(0, 80, 0.001);
+      } else if (view === 'front') {
+        camera.position.set(0, 20, 80);
+      }
+      orbitControls.target.set(0, 10, 0);
+      orbitControls.update();
+    }
+
+    function adjustCameraZoom(factor) {
+      camera.position.sub(orbitControls.target).multiplyScalar(factor).add(orbitControls.target);
+      orbitControls.update();
+    }
+
+    function onCanvasPointerDown(event) {
+      if (event.button !== 0 || transformControls.dragging || isCSGMerged) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(sceneObjects, false);
+
+      if (intersects.length > 0) {
+        selectObject(intersects[0].object);
+      } else {
+        selectObject(null);
+      }
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById('viewport-container');
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+
+    // ------------------------------------------------------------------
+    // STARTER DEMO SCENE (Solid Block with Hole Cutter)
+    // ------------------------------------------------------------------
+    function createStarterDemoScene() {
+      // Base Solid Box
+      createPrimitive('box', false);
+      const baseBlock = sceneObjects[0];
+      baseBlock.name = "主體立方塊";
+      baseBlock.scale.set(1.8, 0.8, 1.8);
+      baseBlock.position.set(0, 8, 0);
+
+      // Hole Cylinder Cutter passing through center
+      createPrimitive('cylinder', true);
+      const holeCutter = sceneObjects[1];
+      holeCutter.name = "中心圓柱挖空體";
+      holeCutter.scale.set(0.85, 1.25, 0.85);
+      holeCutter.position.set(0, 8, 0);
+
+      // Deselect initially for ultra-clean view
+      selectObject(null);
+    }
+
+    // ------------------------------------------------------------------
+    // TOAST NOTIFICATION UTILITY
+    // ------------------------------------------------------------------
+    function showToast(message, type = "info") {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+
+      const styleMap = {
+        info: 'bg-blue-600/90 border-blue-500',
+        success: 'bg-emerald-600/90 border-emerald-500',
+        warning: 'bg-amber-600/90 border-amber-500',
+        error: 'bg-rose-600/90 border-rose-500'
+      };
+
+      toast.className = `px-4 py-2.5 rounded-2xl border text-xs font-medium text-white shadow-2xl backdrop-blur-md transition transform translate-y-2 opacity-0 flex items-center space-x-2 ${styleMap[type] || styleMap.info}`;
+      toast.innerHTML = `<span>${message}</span>`;
+
+      container.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', '-translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 3200);
+    }
+
+    function getRandomMatColor() {
+      const colors = [0x3b82f6, 0x10b981, 0xf59e0b, 0x8b5cf6, 0xec4899, 0x06b6d4];
+      return colors[Math.floor(Math.random() * colors.length)];
+    }
+
+    // ------------------------------------------------------------------
+    // MAIN RENDER LOOP
+    // ------------------------------------------------------------------
+    function animate() {
+      requestAnimationFrame(animate);
+      orbitControls.update();
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
